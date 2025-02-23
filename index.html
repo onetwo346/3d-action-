@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Shooting Sim</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        .joystick {
+            position: absolute; width: 80px; height: 80px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3); border: 2px solid white;
+            touch-action: none;
+        }
+        #moveJoystick { bottom: 10px; left: 10px; }
+        #lookJoystick { bottom: 10px; right: 10px; }
+        .knob {
+            width: 30px; height: 30px; border-radius: 50%; background: white;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+    <div id="moveJoystick" class="joystick"><div class="knob"></div></div>
+    <div id="lookJoystick" class="joystick"><div class="knob"></div></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting (makes it look better without images)
+        const ambientLight = new THREE.AmbientLight(0x404040, 1);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        directionalLight.position.set(20, 30, 20);
+        scene.add(directionalLight);
+
+        // Bigger, cooler floor
+        const floorGeometry = new THREE.PlaneGeometry(200, 200);
+        const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // Simple walls to define the space
+        const wallGeometry = new THREE.BoxGeometry(200, 8, 1);
+        const wallMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
+        const wall1 = new THREE.Mesh(wallGeometry, wallMaterial);
+        wall1.position.set(0, 4, -100);
+        scene.add(wall1);
+        const wall2 = new THREE.Mesh(wallGeometry, wallMaterial);
+        wall2.position.set(0, 4, 100);
+        scene.add(wall2);
+        const wall3 = new THREE.Mesh(wallGeometry, wallMaterial);
+        wall3.rotation.y = Math.PI / 2;
+        wall3.position.set(-100, 4, 0);
+        scene.add(wall3);
+        const wall4 = new THREE.Mesh(wallGeometry, wallMaterial);
+        wall4.rotation.y = Math.PI / 2;
+        wall4.position.set(100, 4, 0);
+        scene.add(wall4);
+
+        // Targets (more and spherical)
+        const targetGeometry = new THREE.SphereGeometry(1, 16, 16);
+        const targetMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        const targets = [];
+        for (let i = 0; i < 10; i++) {
+            const target = new THREE.Mesh(targetGeometry, targetMaterial);
+            target.position.set(Math.random() * 180 - 90, 1, Math.random() * 180 - 90);
+            scene.add(target);
+            targets.push(target);
+        }
+
+        // Player setup
+        camera.position.y = 2;
+        const velocity = new THREE.Vector3();
+        const moveSpeed = 0.2;
+
+        // Touch controls
+        const moveJoystick = document.getElementById('moveJoystick');
+        const moveKnob = moveJoystick.querySelector('.knob');
+        const lookJoystick = document.getElementById('lookJoystick');
+        const lookKnob = lookJoystick.querySelector('.knob');
+        let moveTouchId = null, lookTouchId = null;
+        let moveVector = new THREE.Vector2(), lookVector = new THREE.Vector2();
+
+        function updateJoystick(touch, joystick, knob, vector) {
+            const rect = joystick.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const dx = Math.min(Math.max(touch.clientX - centerX, -40), 40);
+            const dy = Math.min(Math.max(touch.clientY - centerY, -40), 40);
+            knob.style.left = `calc(50% + ${dx}px)`;
+            knob.style.top = `calc(50% + ${dy}px)`;
+            vector.set(dx / 40, -dy / 40); // Normalized -1 to 1
+        }
+
+        document.addEventListener('touchstart', (e) => {
+            for (let touch of e.changedTouches) {
+                if (!moveTouchId && moveJoystick.contains(touch.target)) {
+                    moveTouchId = touch.identifier;
+                    updateJoystick(touch, moveJoystick, moveKnob, moveVector);
+                } else if (!lookTouchId && lookJoystick.contains(touch.target)) {
+                    lookTouchId = touch.identifier;
+                    updateJoystick(touch, lookJoystick, lookKnob, lookVector);
+                }
+            }
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            for (let touch of e.touches) {
+                if (touch.identifier === moveTouchId) {
+                    updateJoystick(touch, moveJoystick, moveKnob, moveVector);
+                } else if (touch.identifier === lookTouchId) {
+                    updateJoystick(touch, lookJoystick, lookKnob, lookVector);
+                }
+            }
+        });
+
+        document.addEventListener('touchend', (e) => {
+            for (let touch of e.changedTouches) {
+                if (touch.identifier === moveTouchId) {
+                    moveTouchId = null;
+                    moveKnob.style.left = '50%';
+                    moveKnob.style.top = '50%';
+                    moveVector.set(0, 0);
+                } else if (touch.identifier === lookTouchId) {
+                    lookTouchId = null;
+                    lookKnob.style.left = '50%';
+                    lookKnob.style.top = '50%';
+                    lookVector.set(0, 0);
+                }
+            }
+        });
+
+        // Shooting (touch tap)
+        document.addEventListener('touchstart', (e) => {
+            if (!moveJoystick.contains(e.target) && !lookJoystick.contains(e.target)) {
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+                const intersects = raycaster.intersectObjects(targets);
+                if (intersects.length > 0) {
+                    scene.remove(intersects[0].object);
+                    targets.splice(targets.indexOf(intersects[0].object), 1);
+                }
+            }
+        });
+
+        // Keyboard controls (fallback for desktop)
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        });
+
+        // Mouse look (desktop)
+        let isMouseLocked = false;
+        document.addEventListener('click', () => {
+            if (!isMouseLocked) {
+                renderer.domElement.requestPointerLock();
+                isMouseLocked = true;
+            }
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (isMouseLocked) {
+                camera.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - e.movementY * 0.002));
+            }
+        });
+        document.addEventListener('mousedown', () => {
+            if (isMouseLocked) {
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+                const intersects = raycaster.intersectObjects(targets);
+                if (intersects.length > 0) {
+                    scene.remove(intersects[0].object);
+                    targets.splice(targets.indexOf(intersects[0].object), 1);
+                }
+            }
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Movement (touch or keyboard)
+            velocity.x *= 0.9; // Friction
+            velocity.z *= 0.9;
+
+            const moveX = moveVector.x || (moveRight ? 1 : moveLeft ? -1 : 0);
+            const moveZ = moveVector.y || (moveForward ? 1 : moveBackward ? -1 : 0);
+            velocity.x += moveX * moveSpeed;
+            velocity.z += moveZ * moveSpeed;
+
+            camera.position.x += velocity.x;
+            camera.position.z += velocity.z;
+            camera.position.y = 2; // Stay on ground
+
+            // Look (touch only)
+            camera.rotation.y -= lookVector.x * 0.05;
+            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - lookVector.y * 0.05));
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
