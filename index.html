@@ -3,26 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Shooting Sim</title>
+    <title>3D Shooting Sim with Fireballs</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
         canvas { display: block; }
         .joystick {
             position: absolute; width: 80px; height: 80px; border-radius: 50%;
             background: rgba(255, 255, 255, 0.3); border: 2px solid white;
             touch-action: none;
         }
-        #moveJoystick { bottom: 10px; left: 10px; }
-        #lookJoystick { bottom: 10px; right: 10px; }
+        #moveJoystick { bottom: 100px; left: 10px; }
+        #lookJoystick { bottom: 100px; right: 10px; }
+        #fireButton {
+            position: absolute; width: 60px; height: 60px; border-radius: 50%;
+            background: rgba(255, 0, 0, 0.5); border: 2px solid red;
+            bottom: 10px; right: 50%; transform: translateX(50%);
+            touch-action: none; z-index: 10;
+        }
         .knob {
             width: 30px; height: 30px; border-radius: 50%; background: white;
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
         }
+        #hud {
+            position: absolute; top: 10px; left: 10px; color: white;
+            text-shadow: 1px 1px 2px black; font-size: 20px; z-index: 10;
+        }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 20px; height: 20px; z-index: 10; pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: white;
+        }
+        #crosshair::before { width: 2px; height: 20px; left: 9px; }
+        #crosshair::after { width: 20px; height: 2px; top: 9px; }
     </style>
 </head>
 <body>
     <div id="moveJoystick" class="joystick"><div class="knob"></div></div>
     <div id="lookJoystick" class="joystick"><div class="knob"></div></div>
+    <div id="fireButton"></div>
+    <div id="hud"></div>
+    <div id="crosshair"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script>
         // Scene setup
@@ -32,59 +54,69 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Lighting (makes it look better without images)
-        const ambientLight = new THREE.AmbientLight(0x404040, 1);
-        scene.add(ambientLight);
+        // Lighting
+        scene.add(new THREE.AmbientLight(0x404040, 1));
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
         directionalLight.position.set(20, 30, 20);
         scene.add(directionalLight);
 
-        // Bigger, cooler floor
-        const floorGeometry = new THREE.PlaneGeometry(200, 200);
-        const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        // Floor
+        const floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200),
+            new THREE.MeshPhongMaterial({ color: 0x333333 })
+        );
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // Simple walls to define the space
+        // Walls
         const wallGeometry = new THREE.BoxGeometry(200, 8, 1);
         const wallMaterial = new THREE.MeshPhongMaterial({ color: 0x666666 });
-        const wall1 = new THREE.Mesh(wallGeometry, wallMaterial);
-        wall1.position.set(0, 4, -100);
-        scene.add(wall1);
-        const wall2 = new THREE.Mesh(wallGeometry, wallMaterial);
-        wall2.position.set(0, 4, 100);
-        scene.add(wall2);
-        const wall3 = new THREE.Mesh(wallGeometry, wallMaterial);
-        wall3.rotation.y = Math.PI / 2;
-        wall3.position.set(-100, 4, 0);
-        scene.add(wall3);
-        const wall4 = new THREE.Mesh(wallGeometry, wallMaterial);
-        wall4.rotation.y = Math.PI / 2;
-        wall4.position.set(100, 4, 0);
-        scene.add(wall4);
+        [
+            [0, 4, -100, 0],
+            [0, 4, 100, 0],
+            [-100, 4, 0, Math.PI / 2],
+            [100, 4, 0, Math.PI / 2]
+        ].forEach(([x, y, z, rot]) => {
+            const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+            wall.position.set(x, y, z);
+            wall.rotation.y = rot;
+            scene.add(wall);
+        });
 
-        // Targets (more and spherical)
-        const targetGeometry = new THREE.SphereGeometry(1, 16, 16);
+        // Targets
+        const targetGeometry = new THREE.SphereGeometry(1.5, 16, 16);
         const targetMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
         const targets = [];
-        for (let i = 0; i < 10; i++) {
+        function spawnTarget() {
             const target = new THREE.Mesh(targetGeometry, targetMaterial);
-            target.position.set(Math.random() * 180 - 90, 1, Math.random() * 180 - 90);
+            target.position.set(Math.random() * 180 - 90, 1.5, Math.random() * 180 - 90);
             scene.add(target);
             targets.push(target);
         }
+        for (let i = 0; i < 10; i++) spawnTarget();
+
+        // Fireballs
+        const fireballGeometry = new THREE.SphereGeometry(0.3, 8, 8);
+        const fireballMaterial = new THREE.MeshPhongMaterial({ color: 0xff4500 });
+        const fireballs = [];
 
         // Player setup
         camera.position.y = 2;
         const velocity = new THREE.Vector3();
-        const moveSpeed = 0.2;
+        const moveSpeed = 0.1;
+
+        // Game logic
+        let score = 0;
+        let timeLeft = 60;
+        let gameOver = false;
+        const hud = document.getElementById('hud');
 
         // Touch controls
         const moveJoystick = document.getElementById('moveJoystick');
         const moveKnob = moveJoystick.querySelector('.knob');
         const lookJoystick = document.getElementById('lookJoystick');
         const lookKnob = lookJoystick.querySelector('.knob');
+        const fireButton = document.getElementById('fireButton');
         let moveTouchId = null, lookTouchId = null;
         let moveVector = new THREE.Vector2(), lookVector = new THREE.Vector2();
 
@@ -96,10 +128,12 @@
             const dy = Math.min(Math.max(touch.clientY - centerY, -40), 40);
             knob.style.left = `calc(50% + ${dx}px)`;
             knob.style.top = `calc(50% + ${dy}px)`;
-            vector.set(dx / 40, -dy / 40); // Normalized -1 to 1
+            vector.set(dx / 40, -dy / 40);
         }
 
         document.addEventListener('touchstart', (e) => {
+            if (gameOver) return;
+            e.preventDefault();
             for (let touch of e.changedTouches) {
                 if (!moveTouchId && moveJoystick.contains(touch.target)) {
                     moveTouchId = touch.identifier;
@@ -112,6 +146,8 @@
         });
 
         document.addEventListener('touchmove', (e) => {
+            if (gameOver) return;
+            e.preventDefault();
             for (let touch of e.touches) {
                 if (touch.identifier === moveTouchId) {
                     updateJoystick(touch, moveJoystick, moveKnob, moveVector);
@@ -122,6 +158,8 @@
         });
 
         document.addEventListener('touchend', (e) => {
+            if (gameOver) return;
+            e.preventDefault();
             for (let touch of e.changedTouches) {
                 if (touch.identifier === moveTouchId) {
                     moveTouchId = null;
@@ -137,30 +175,39 @@
             }
         });
 
-        // Shooting (touch tap)
-        document.addEventListener('touchstart', (e) => {
-            if (!moveJoystick.contains(e.target) && !lookJoystick.contains(e.target)) {
-                const raycaster = new THREE.Raycaster();
-                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-                const intersects = raycaster.intersectObjects(targets);
-                if (intersects.length > 0) {
-                    scene.remove(intersects[0].object);
-                    targets.splice(targets.indexOf(intersects[0].object), 1);
-                }
-            }
+        // Fire button
+        fireButton.addEventListener('touchstart', (e) => {
+            if (gameOver) return;
+            e.preventDefault();
+            shoot();
         });
 
-        // Keyboard controls (fallback for desktop)
+        // Shooting logic
+        function shoot() {
+            const fireball = new THREE.Mesh(fireballGeometry, fireballMaterial);
+            fireball.position.copy(camera.position);
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            fireball.userData.velocity = direction.multiplyScalar(15);
+            fireball.userData.lifespan = 3;
+            scene.add(fireball);
+            fireballs.push(fireball);
+        }
+
+        // Keyboard controls
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         document.addEventListener('keydown', (e) => {
+            if (gameOver) return;
             switch (e.code) {
                 case 'KeyW': moveForward = true; break;
                 case 'KeyS': moveBackward = true; break;
                 case 'KeyA': moveLeft = true; break;
                 case 'KeyD': moveRight = true; break;
+                case 'Space': shoot(); break;
             }
         });
         document.addEventListener('keyup', (e) => {
+            if (gameOver) return;
             switch (e.code) {
                 case 'KeyW': moveForward = false; break;
                 case 'KeyS': moveBackward = false; break;
@@ -169,52 +216,87 @@
             }
         });
 
-        // Mouse look (desktop)
+        // Mouse controls
         let isMouseLocked = false;
-        document.addEventListener('click', () => {
+        document.addEventListener('click', (e) => {
+            if (gameOver || fireButton.contains(e.target)) return;
             if (!isMouseLocked) {
                 renderer.domElement.requestPointerLock();
                 isMouseLocked = true;
             }
         });
         document.addEventListener('mousemove', (e) => {
+            if (gameOver) return;
             if (isMouseLocked) {
                 camera.rotation.y -= e.movementX * 0.002;
                 camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - e.movementY * 0.002));
             }
         });
-        document.addEventListener('mousedown', () => {
-            if (isMouseLocked) {
-                const raycaster = new THREE.Raycaster();
-                raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-                const intersects = raycaster.intersectObjects(targets);
-                if (intersects.length > 0) {
-                    scene.remove(intersects[0].object);
-                    targets.splice(targets.indexOf(intersects[0].object), 1);
-                }
-            }
+        document.addEventListener('mousedown', (e) => {
+            if (gameOver || fireButton.contains(e.target)) return;
+            if (isMouseLocked && e.button === 0) shoot();
         });
 
         // Animation loop
+        let lastTime = performance.now();
         function animate() {
             requestAnimationFrame(animate);
+            const currentTime = performance.now();
+            const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
+            lastTime = currentTime;
 
-            // Movement (touch or keyboard)
-            velocity.x *= 0.9; // Friction
-            velocity.z *= 0.9;
+            if (!gameOver) {
+                // Movement
+                velocity.x -= velocity.x * 8 * delta;
+                velocity.z -= velocity.z * 8 * delta;
+                const moveX = moveVector.x || (moveRight ? 1 : moveLeft ? -1 : 0);
+                const moveZ = moveVector.y || (moveForward ? 1 : moveBackward ? -1 : 0);
+                velocity.x += moveX * moveSpeed;
+                velocity.z += moveZ * moveSpeed;
 
-            const moveX = moveVector.x || (moveRight ? 1 : moveLeft ? -1 : 0);
-            const moveZ = moveVector.y || (moveForward ? 1 : moveBackward ? -1 : 0);
-            velocity.x += moveX * moveSpeed;
-            velocity.z += moveZ * moveSpeed;
+                const newX = camera.position.x + velocity.x;
+                const newZ = camera.position.z + velocity.z;
+                if (newX > -98 && newX < 98) camera.position.x = newX;
+                if (newZ > -98 && newZ < 98) camera.position.z = newZ;
+                camera.position.y = 2;
 
-            camera.position.x += velocity.x;
-            camera.position.z += velocity.z;
-            camera.position.y = 2; // Stay on ground
+                // Look
+                camera.rotation.y -= lookVector.x * 0.03;
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - lookVector.y * 0.03));
 
-            // Look (touch only)
-            camera.rotation.y -= lookVector.x * 0.05;
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - lookVector.y * 0.05));
+                // Fireball movement and collision
+                for (let i = fireballs.length - 1; i >= 0; i--) {
+                    const fb = fireballs[i];
+                    fb.position.addScaledVector(fb.userData.velocity, delta);
+                    fb.userData.lifespan -= delta;
+
+                    for (let j = targets.length - 1; j >= 0; j--) {
+                        const target = targets[j];
+                        if (fb.position.distanceTo(target.position) < 1.8) {
+                            scene.remove(target);
+                            targets.splice(j, 1);
+                            score += 1;
+                            setTimeout(spawnTarget, 500);
+                            break;
+                        }
+                    }
+
+                    if (fb.userData.lifespan <= 0) {
+                        scene.remove(fb);
+                        fireballs.splice(i, 1);
+                    }
+                }
+
+                // Game logic
+                timeLeft -= delta;
+                if (timeLeft <= 0) {
+                    timeLeft = 0;
+                    gameOver = true;
+                    hud.innerHTML = `Game Over! Final Score: ${score}`;
+                } else {
+                    hud.innerHTML = `Score: ${score} | Time: ${Math.round(timeLeft)}s`;
+                }
+            }
 
             renderer.render(scene, camera);
         }
